@@ -231,6 +231,10 @@ public class WifiMonitor {
     private static final String BSS_REMOVED_STR = "BSS-REMOVED";
 
     /**
+     * This indicate supplicant encounter RSN PMKID mismatch error
+     */
+    private static final String RSN_PMKID_STR = "RSN: PMKID mismatch";
+    /**
      * Regex pattern for extracting an Ethernet-style MAC address from a string.
      * Matches a strings like the following:<pre>
      * CTRL-EVENT-CONNECTED - Connection to 00:1e:58:ec:d5:6d completed (reauth) [id=1 id_str=]</pre>
@@ -510,6 +514,7 @@ public class WifiMonitor {
     public static final int HS20_REMEDIATION_EVENT               = BASE + 61;
     public static final int HS20_DEAUTH_EVENT                    = BASE + 62;
 
+    public static final int RSN_PMKID_MISMATCH_EVENT             = BASE + 63;
     /**
      * This indicates a read error on the monitor socket conenction
      */
@@ -616,9 +621,9 @@ public class WifiMonitor {
                         new MonitorThread(mWifiNative, this).start();
                         return true;
                     }
-                    if (connectTries++ < 5) {
+                    if (connectTries++ < 50) {
                         try {
-                            Thread.sleep(1000);
+                            Thread.sleep(100);
                         } catch (InterruptedException ignore) {
                         }
                     } else {
@@ -848,6 +853,8 @@ public class WifiMonitor {
             } else if (eventStr.startsWith(AUTH_EVENT_PREFIX_STR) &&
                     eventStr.endsWith(AUTH_TIMEOUT_STR)) {
                 mStateMachine.sendMessage(AUTHENTICATION_FAILURE_EVENT);
+            } else if (eventStr.startsWith(RSN_PMKID_STR)) {
+                mStateMachine.sendMessage(RSN_PMKID_MISMATCH_EVENT);
             } else {
                 if (DBG) Log.w(TAG, "couldn't identify event type - " + eventStr);
             }

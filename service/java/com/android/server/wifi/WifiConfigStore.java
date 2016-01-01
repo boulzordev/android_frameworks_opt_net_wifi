@@ -393,8 +393,8 @@ public class WifiConfigStore extends IpConfigStore {
 
     public static final int maxNumScanCacheEntries = 128;
 
-    public final AtomicBoolean enableHalBasedPno = new AtomicBoolean(true);
-    public final AtomicBoolean enableSsidWhitelist = new AtomicBoolean(true);
+    public final AtomicBoolean enableHalBasedPno = new AtomicBoolean(false);
+    public final AtomicBoolean enableSsidWhitelist = new AtomicBoolean(false);
     public final AtomicBoolean enableAutoJoinWhenAssociated = new AtomicBoolean(true);
     public final AtomicBoolean enableFullBandScanWhenAssociated = new AtomicBoolean(true);
     public final AtomicBoolean enableChipWakeUpWhenAssociated = new AtomicBoolean(true);
@@ -470,7 +470,7 @@ public class WifiConfigStore extends IpConfigStore {
             WifiEnterpriseConfig.CA_CERT_KEY, WifiEnterpriseConfig.SUBJECT_MATCH_KEY,
             WifiEnterpriseConfig.ENGINE_KEY, WifiEnterpriseConfig.ENGINE_ID_KEY,
             WifiEnterpriseConfig.PRIVATE_KEY_ID_KEY, WifiEnterpriseConfig.ALTSUBJECT_MATCH_KEY,
-            WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY
+            WifiEnterpriseConfig.DOM_SUFFIX_MATCH_KEY, WifiEnterpriseConfig.PHASE1_KEY
     };
 
 
@@ -1023,6 +1023,8 @@ public class WifiConfigStore extends IpConfigStore {
             }
         }
 
+        mWifiNative.setHs20(config.isPasspoint());
+
         if (updatePriorities)
             mWifiNative.saveConfig();
         else
@@ -1312,7 +1314,7 @@ public class WifiConfigStore extends IpConfigStore {
             // Sort by descending priority
             Collections.sort(sortedWifiConfigurations, new Comparator<WifiConfiguration>() {
                 public int compare(WifiConfiguration a, WifiConfiguration b) {
-                    return a.priority >= b.priority ? 1 : -1;
+                    return a.priority - b.priority;
                 }
             });
         }
@@ -1791,7 +1793,7 @@ public class WifiConfigStore extends IpConfigStore {
         mLastPriority = 0;
 
         mConfiguredNetworks.clear();
-
+        List<WifiConfiguration> configTlsResetList = new ArrayList<WifiConfiguration>();
         int last_id = -1;
         boolean done = false;
         while (!done) {
@@ -1860,6 +1862,14 @@ public class WifiConfigStore extends IpConfigStore {
                     if (showNetworks) log("Ignoring loaded configured for network " + config.networkId
                         + " because config are not valid");
                 }
+
+                if (config != null && config.enterpriseConfig != null &&
+                        config.enterpriseConfig.getEapMethod() < WifiEnterpriseConfig.Eap.PWD) {
+                    if (!config.enterpriseConfig.getTls12Enable()) {
+                        //re-enable the TLS1.2 every time when load the network
+                        configTlsResetList.add(config);
+                    }
+                }
             }
 
             done = (lines.length == 1);
@@ -1882,6 +1892,12 @@ public class WifiConfigStore extends IpConfigStore {
             logContents(SUPPLICANT_CONFIG_FILE);
             logContents(SUPPLICANT_CONFIG_FILE_BACKUP);
             logContents(networkHistoryConfigFile);
+        }
+
+        //reset TLS default to 1.2
+        for (WifiConfiguration config : configTlsResetList) {
+            config.enterpriseConfig.setTls12Enable(true);
+            addOrUpdateNetwork(config, WifiConfiguration.UNKNOWN_UID);
         }
     }
 
@@ -2937,6 +2953,56 @@ public class WifiConfigStore extends IpConfigStore {
                                 || key.equals(WifiEnterpriseConfig.PLMN_KEY)) {
                             // No need to save realm or PLMN in supplicant
                             continue;
+                        }
+                        if (key.equals(WifiEnterpriseConfig.IDENTITY_KEY)) {
+                             if ((config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.SIM)||
+                                 (config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.AKA)||
+                                 (config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.AKA_PRIME)) {
+                                  if ( (!newNetwork) && (value != null) && !mWifiNative.setNetworkVariable(
+                                             netId,
+                                             key,
+                                             "NULL")) {
+                                        loge(config.SSID + ": failed to set " + key +
+                                                ": " + value);
+                                        break setVariables;
+                                  }
+                             } else {
+                                  if (!mWifiNative.setNetworkVariable(
+                                           netId,
+                                           key,
+                                           value)) {
+                                      removeKeys(enterpriseConfig);
+                                      loge(config.SSID + ": failed to set " + key +
+                                              ": " + value);
+                                      break setVariables;
+                                 }
+                            }
+                            continue;
+                        }
+                        if (key.equals(WifiEnterpriseConfig.ANON_IDENTITY_KEY)) {
+                             if ((config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.SIM)||
+                                 (config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.AKA)||
+                                 (config.enterpriseConfig.getEapMethod() ==  WifiEnterpriseConfig.Eap.AKA_PRIME)) {
+                                  if ( (!newNetwork) && (value != null) && !mWifiNative.setNetworkVariable(
+                                             netId,
+                                             key,
+                                             "NULL")) {
+                                        loge(config.SSID + ": failed to set " + key +
+                                                ": " + value);
+                                        break setVariables;
+                                  }
+                             } else {
+                                  if (!mWifiNative.setNetworkVariable(
+                                           netId,
+                                           key,
+                                           value)) {
+                                      removeKeys(enterpriseConfig);
+                                      loge(config.SSID + ": failed to set " + key +
+                                              ": " + value);
+                                      break setVariables;
+                                  }
+                             }
+                             continue;
                         }
                         if (!((newNetwork == false) && (savedValue != null) &&
                               (value != null) && value.equals(savedValue)) &&

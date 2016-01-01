@@ -36,6 +36,8 @@ import android.util.Base64;
 import android.util.LocalLog;
 import android.util.Log;
 
+import com.android.server.connectivity.KeepalivePacketData;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -674,6 +676,14 @@ public class WifiNative {
 
     public void setScanInterval(int scanInterval) {
         doBooleanCommand("SCAN_INTERVAL " + scanInterval);
+    }
+
+    public void setHs20(boolean hs20) {
+        if (hs20) {
+            doBooleanCommand("SET HS20 1");
+        } else {
+            doBooleanCommand("SET HS20 0");
+        }
     }
 
     public void startTdls(String macAddr, boolean enable) {
@@ -1466,8 +1476,8 @@ public class WifiNative {
 
         int secondChanelOffset = 0;
         byte channelMode = 0;
-        byte centerFreqIndex1 = 0;
-        byte centerFreqIndex2 = 0;
+        int centerFreqIndex1 = 0;
+        int centerFreqIndex2 = 0;
 
         boolean is80211McRTTResponder = false;
 
@@ -1490,8 +1500,8 @@ public class WifiNative {
                 secondChanelOffset = bytes[inforStart + 1] & 0x3;
             } else if(type == EID_VHT_OPERATION) {
                 channelMode = bytes[inforStart];
-                centerFreqIndex1 = bytes[inforStart + 1];
-                centerFreqIndex2 = bytes[inforStart + 2];
+                centerFreqIndex1 = bytes[inforStart + 1] & 0xFF;
+                centerFreqIndex2 = bytes[inforStart + 2] & 0xFF;
             } else if (type == EID_EXTENDED_CAPS) {
                 int tempIndex = RTT_RESP_ENABLE_BIT / 8;
                 byte offset = RTT_RESP_ENABLE_BIT % 8;
@@ -1604,7 +1614,9 @@ public class WifiNative {
     synchronized public static void stopScan() {
         synchronized (mLock) {
             if (isHalStarted()) {
-                stopScanNative(sWlan0Index, sScanCmdId);
+                if (sScanCmdId != 0) {
+                    stopScanNative(sWlan0Index, sScanCmdId);
+                }
                 sScanSettings = null;
                 sScanEventHandler = null;
                 sScanCmdId = 0;
@@ -2398,6 +2410,100 @@ public class WifiNative {
                 return setSsidWhitelistNative(sWlan0Index, sPnoCmdId, list);
             } else {
                 return false;
+            }
+        }
+    }
+
+    private native static int startSendingOffloadedPacketNative(int iface, int idx,
+                                    byte[] srcMac, byte[] dstMac, byte[] pktData, int period);
+
+    synchronized public int
+    startSendingOffloadedPacket(int slot, KeepalivePacketData keepAlivePacket, int period) {
+        Log.d(TAG, "startSendingOffloadedPacket slot=" + slot + " period=" + period);
+
+        String[] macAddrStr = getMacAddress().split(":");
+        byte[] srcMac = new byte[6];
+        for(int i = 0; i < 6; i++) {
+            Integer hexVal = Integer.parseInt(macAddrStr[i], 16);
+            srcMac[i] = hexVal.byteValue();
+        }
+        synchronized (mLock) {
+            if (isHalStarted()) {
+                return startSendingOffloadedPacketNative(sWlan0Index, slot, srcMac,
+                                keepAlivePacket.dstMac, keepAlivePacket.data, period);
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    private native static int stopSendingOffloadedPacketNative(int iface, int idx);
+
+    synchronized public int
+    stopSendingOffloadedPacket(int slot) {
+        Log.d(TAG, "stopSendingOffloadedPacket " + slot);
+        synchronized (mLock) {
+            if (isHalStarted()) {
+                return stopSendingOffloadedPacketNative(sWlan0Index, slot);
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    public static interface WifiRssiEventHandler {
+        void onRssiThresholdBreached(byte curRssi);
+    }
+
+    private static WifiRssiEventHandler sWifiRssiEventHandler;
+
+    synchronized static void onRssiThresholdBreached(int id, byte curRssi) {
+        sWifiRssiEventHandler.onRssiThresholdBreached(curRssi);
+    }
+
+    private native static int startRssiMonitoringNative(int iface, int id,
+                                        byte maxRssi, byte minRssi);
+
+    private static int sRssiMonitorCmdId = 0;
+
+    synchronized public int startRssiMonitoring(byte maxRssi, byte minRssi,
+                                                WifiRssiEventHandler rssiEventHandler) {
+        Log.d(TAG, "startRssiMonitoring: maxRssi=" + maxRssi + " minRssi=" + minRssi);
+        sWifiRssiEventHandler = rssiEventHandler;
+        synchronized (mLock) {
+            if (isHalStarted()) {
+                if (sRssiMonitorCmdId != 0) {
+                    stopRssiMonitoring();
+                }
+
+                sRssiMonitorCmdId = getNewCmdIdLocked();
+                Log.d(TAG, "sRssiMonitorCmdId = " + sRssiMonitorCmdId);
+                int ret = startRssiMonitoringNative(sWlan0Index, sRssiMonitorCmdId,
+                        maxRssi, minRssi);
+                if (ret != 0) { // if not success
+                    sRssiMonitorCmdId = 0;
+                }
+                return ret;
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    private native static int stopRssiMonitoringNative(int iface, int idx);
+
+    synchronized public int stopRssiMonitoring() {
+        Log.d(TAG, "stopRssiMonitoring, cmdId " + sRssiMonitorCmdId);
+        synchronized (mLock) {
+            if (isHalStarted()) {
+                int ret = 0;
+                if (sRssiMonitorCmdId != 0) {
+                    ret = stopRssiMonitoringNative(sWlan0Index, sRssiMonitorCmdId);
+                }
+                sRssiMonitorCmdId = 0;
+                return ret;
+            } else {
+                return -1;
             }
         }
     }
