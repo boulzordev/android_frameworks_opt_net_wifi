@@ -173,7 +173,7 @@ class WifiApConfigStore extends StateMachine {
             if (mContext.getResources().getBoolean(
                     com.android.internal.R.bool.config_regional_hotspot_show_broadcast_ssid_checkbox
             )) {
-                config.hiddenSSID = in.readBoolean();
+                config.hiddenSSID = (in.readInt() != 0);
             }
 
             if (version >= 2) {
