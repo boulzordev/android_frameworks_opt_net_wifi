@@ -673,9 +673,12 @@ public class WifiConfigStore extends IpConfigStore {
         }
 
         boolean hs2on = mContext.getResources().getBoolean(R.bool.config_wifi_hotspot2_enabled);
-        Log.d(Utils.hs2LogTag(getClass()), "Passpoint is " + (hs2on ? "enabled" : "disabled"));
+        boolean hs2onSet = (Settings.Global.getInt(mContext.getContentResolver(),
+                                Settings.Global.WIFI_HOTSPOT2_ENABLED, 0) == 1);
+        Log.d(Utils.hs2LogTag(getClass()), "Passpoint is " +
+            (hs2on ? "enabled" : "disabled") + ", " + hs2onSet);
 
-        mMOManager = new MOManager(new File(PPS_FILE), hs2on);
+        mMOManager = new MOManager(new File(PPS_FILE), (hs2on & hs2onSet));
         mAnqpCache = new AnqpCache();
         mSupplicantBridge = new SupplicantBridge(mWifiNative, this);
         mScanDetailCaches = new HashMap<>();

@@ -170,6 +170,11 @@ class WifiApConfigStore extends StateMachine {
                 return;
             }
             config.SSID = in.readUTF();
+            if (mContext.getResources().getBoolean(
+                    com.android.internal.R.bool.config_regional_hotspot_show_broadcast_ssid_checkbox
+            )) {
+                config.hiddenSSID = (in.readInt() != 0);
+            }
 
             if (version >= 2) {
                 config.apBand = in.readInt();
@@ -206,6 +211,11 @@ class WifiApConfigStore extends StateMachine {
 
             out.writeInt(AP_CONFIG_FILE_VERSION);
             out.writeUTF(config.SSID);
+            if (mContext.getResources().getBoolean(
+                    com.android.internal.R.bool.config_regional_hotspot_show_broadcast_ssid_checkbox
+            )) {
+                out.writeInt(config.hiddenSSID ? 1 : 0);
+            }
             out.writeInt(config.apBand);
             out.writeInt(config.apChannel);
             int authType = config.getAuthType();
